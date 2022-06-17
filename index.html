@@ -5,9 +5,12 @@
     <title>Title</title>
 </head>
 <script>
-    window.onload = function() {
+    window.onload = function () {
         let token = /access_token=([^&]+)/.exec(document.location.hash)[1];
-        document.getElementById("nav_link").href = `https://t.me/telice_bot?start=${token}`;
+        let expiresIn = /expires_in=([^&]+)/.exec(document.location.hash)[1];
+
+        let final = btoa(`${token}:${expiresIn}`);
+        document.getElementById("nav_link").href = `https://t.me/telice_bot?start=${final}`;
     }
 </script>
 <body>
