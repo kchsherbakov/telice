@@ -43,12 +43,26 @@ func (b *bot) Run() {
 		}
 
 		if update.Message.IsCommand() {
-			b.handleCommand(update.Message)
-			continue
+			err := b.handleCommand(update.Message)
+			if err != nil {
+				b.handleError(update.FromChat().ID, err)
+				continue
+			}
 		}
-
-		log.Print(update.Message.Text)
 	}
+}
+
+func (b *bot) handleError(chatId int64, err error) {
+	if err == nil {
+		return
+	}
+
+	if e, ok := err.(*botError); ok {
+		b.send(chatId, e.Error())
+		return
+	}
+
+	b.send(chatId, "Something went wrong. Please, try again.")
 }
 
 func (b *bot) send(chatId int64, text string) {
@@ -59,23 +73,40 @@ func (b *bot) send(chatId int64, text string) {
 	}
 }
 
-func (b *bot) handleCommand(msg *tbot.Message) {
+func (b *bot) isAuthorizationRequired(cmd string) bool {
+	if cmd == StartCmd {
+		return false
+	}
+
+	return true
+}
+
+func (b *bot) handleCommand(msg *tbot.Message) error {
 	cmd := msg.Command()
 	args := msg.CommandArguments()
 
+	s, found := b.sessionProvider.TryGet(msg.Chat.ID)
+	if !found && b.isAuthorizationRequired(cmd) {
+		return NewBotError(fmt.Sprintf("Authentication required. Please, click /%s to initiate.", StartCmd))
+	}
+
 	switch cmd {
 	case StartCmd:
-		b.handleStartCommand(msg.Chat.ID, args)
-	case ListDevices:
-		b.handleListDevicesCommand(msg.Chat.ID)
+		return b.handleStartCommand(msg.Chat.ID, args)
+	case ListDevicesCmd:
+		return b.handleListDevicesCommand(s)
+	case SelectAsDefaultCmd:
+		return b.handleSelectAsDefaultCommand(s)
 	}
+
+	return nil
 }
 
-func (b *bot) handleStartCommand(chatId int64, args string) {
+func (b *bot) handleStartCommand(chatId int64, args string) error {
 	if s, ok := b.sessionProvider.TryGet(chatId); ok {
 		text := "Looks like everything is ready. Feel free to send me a link to share with your Alice."
 		b.send(s.chatId, text)
-		return
+		return nil
 	}
 
 	if args != "" {
@@ -87,7 +118,7 @@ func (b *bot) handleStartCommand(chatId int64, args string) {
 
 		oauthToken, csrfToken, err := b.yaClient.getTokens(string(decoded))
 		if err != nil {
-			b.send(chatId, "Could not complete authentication process. Please, try again.")
+			return NewBotError("Could not complete authentication process. Please, try again.")
 		}
 
 		s := NewSession(chatId, oauthToken, csrfToken)
@@ -95,7 +126,7 @@ func (b *bot) handleStartCommand(chatId int64, args string) {
 
 		b.send(chatId, "Authentication is complete.\nSend me a link and I will share it with Alice. Have fun!")
 
-		return
+		return nil
 	}
 
 hello:
@@ -107,32 +138,25 @@ Authentication is done thought Yandex.OAuth. I will never ask you for login or p
 	b.send(chatId, text)
 	b.send(chatId, b.yaClient.getOAuthUrl())
 
-	return
+	return nil
 }
 
-func (b *bot) handleListDevicesCommand(chatId int64) {
-	s, ok := b.sessionProvider.TryGet(chatId)
-	if !ok {
-		text := "Please authenticate to perform this action"
-		b.send(chatId, text)
-		return
-	}
-
+func (b *bot) handleListDevicesCommand(s *session) error {
 	devices, err := b.yaClient.getYandexStations(s)
 	if err != nil {
-		b.send(s.chatId, "Could not get list of registered devices. Please, try again")
-		return
+		return NewBotError("Could not get list of registered devices. Please, try again.")
 	}
 
 	if len(devices) == 0 {
-		b.send(s.chatId, "I didn't find any yandex stations. Is it configured properly?")
-		return
+		return NewBotError("I didn't find any yandex stations. Are they configured properly?")
 	}
 
 	iotInfo, _ := b.yaClient.getYandexSmartHomeInfo(s)
 
 	msgText := b.formatYandexStationsMessage(devices, iotInfo.Rooms, iotInfo.Households)
 	b.send(s.chatId, msgText)
+
+	return nil
 }
 
 func (b *bot) formatYandexStationsMessage(devices []device, rooms []room, households []household) string {
@@ -158,4 +182,8 @@ func (b *bot) formatYandexStationsMessage(devices []device, rooms []room, househ
 	}
 
 	return buf.String()
+}
+
+func (b *bot) handleSelectAsDefaultCommand(s *session) error {
+	return nil
 }
