@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/base64"
 	"fmt"
 	tbot "github.com/go-telegram-bot-api/telegram-bot-api"
@@ -63,6 +64,8 @@ func (b *bot) handleCommand(msg *tbot.Message) {
 	switch cmd {
 	case StartCmd:
 		b.handleStartCommand(msg.Chat.ID, args)
+	case ListDevices:
+		b.handleListDevicesCommand(msg.Chat.ID)
 	}
 }
 
@@ -106,4 +109,32 @@ Authentication is done thought Yandex.OAuth. I will never ask you for login or p
 	b.send(chatId, link)
 
 	return
+}
+
+func (b *bot) handleListDevicesCommand(chatId int64) {
+	s, ok := b.sessionProvider.TryGet(chatId)
+	if !ok {
+		text := "Please authenticate to perform this action"
+		b.send(chatId, text)
+		return
+	}
+
+	devices, err := s.client.getYandexStations()
+	if err != nil {
+		b.send(s.chatId, "Could not get list of registered devices. Please, try again")
+		return
+	}
+
+	if len(devices) == 0 {
+		b.send(s.chatId, "I didn't find any yandex stations. Is it configured properly?")
+		return
+	}
+
+	var buf = bytes.Buffer{}
+	for i, d := range devices {
+		buf.WriteString(fmt.Sprintf("%d. %s", i+1, d.Name))
+		buf.WriteString("\n")
+	}
+
+	b.send(s.chatId, buf.String())
 }

@@ -6,5 +6,8 @@ const (
 	TelegramBotToken = "TELEGRAM_BOT_TOKEN"
 	YandexClientId   = "YANDEX_CLIENT_ID"
 
-	StartCmd = "start"
+	StartCmd    = "start"
+	ListDevices = "listdevices"
+
+	YandexStationTypeSubstr = "yandex.station"
 )
