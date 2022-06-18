@@ -7,6 +7,7 @@ import (
 	tbot "github.com/go-telegram-bot-api/telegram-bot-api"
 	"log"
 	"net/http"
+	"sort"
 )
 
 type bot struct {
@@ -38,16 +39,16 @@ func (b *bot) Run() {
 
 	updates := b.api.GetUpdatesChan(u)
 	for update := range updates {
-		if update.Message == nil {
-			continue
-		}
-
-		if update.Message.IsCommand() {
-			err := b.handleCommand(update.Message)
-			if err != nil {
-				b.handleError(update.FromChat().ID, err)
-				continue
+		if update.Message != nil {
+			if update.Message.IsCommand() {
+				err := b.handleCommand(update.Message)
+				if err != nil {
+					b.handleError(update.FromChat().ID, err)
+					continue
+				}
 			}
+		} else if update.CallbackQuery != nil {
+			b.handleSelectAsDefaultCommandCallback(update.CallbackQuery)
 		}
 	}
 }
@@ -142,26 +143,50 @@ Authentication is done thought Yandex.OAuth. I will never ask you for login or p
 }
 
 func (b *bot) handleListDevicesCommand(s *session) error {
-	devices, err := b.yaClient.getYandexStations(s)
+	devices, err := b.getYandexStations(s)
 	if err != nil {
-		return NewBotError("Could not get list of registered devices. Please, try again.")
-	}
-
-	if len(devices) == 0 {
-		return NewBotError("I didn't find any yandex stations. Are they configured properly?")
+		return err
 	}
 
 	iotInfo, _ := b.yaClient.getYandexSmartHomeInfo(s)
 
-	msgText := b.formatYandexStationsMessage(devices, iotInfo.Rooms, iotInfo.Households)
+	msgText := b.formatYandexStationsMessage(s, devices, iotInfo.Rooms, iotInfo.Households)
 	b.send(s.chatId, msgText)
 
 	return nil
 }
 
-func (b *bot) formatYandexStationsMessage(devices []device, rooms []room, households []household) string {
-	var buf = bytes.Buffer{}
-	for i, d := range devices {
+func (b *bot) getYandexStations(s *session) ([]device, error) {
+	devices, err := b.yaClient.getYandexStations(s)
+	if err != nil {
+		return nil, NewBotError("Could not get list of registered devices. Please, try again.")
+	}
+
+	if len(devices) == 0 {
+		return nil, NewBotError("I didn't find any yandex stations. Are they configured properly?")
+	}
+
+	return devices, nil
+}
+
+func (b *bot) formatYandexStationsMessage(s *session, devices []device, rooms []room, households []household) string {
+	strs := b.yandexStationsToString(s, devices, rooms, households)
+
+	buf := bytes.Buffer{}
+	for i, v := range strs {
+		buf.WriteString(fmt.Sprintf("%d. %s\n", i+1, v))
+	}
+
+	return buf.String()
+}
+
+func (b *bot) yandexStationsToString(s *session, devices []device, rooms []room, households []household) []string {
+	var lines = make([]string, 0)
+
+	sort.Slice(devices, func(i, j int) bool {
+		return devices[i].Id < devices[j].Id
+	})
+	for _, d := range devices {
 		var r room
 		for _, v := range rooms {
 			if v.Id == d.Room {
@@ -178,12 +203,60 @@ func (b *bot) formatYandexStationsMessage(devices []device, rooms []room, househ
 			}
 		}
 
-		buf.WriteString(fmt.Sprintf("%d. %s - %s - %s\n", i+1, h.Name, r.Name, d.Name))
+		strFormat := "%s - %s - %s"
+		if s.defaultDevice != nil && s.defaultDevice.Id == d.Id {
+			strFormat = "Default: %s - %s - %s"
+		}
+
+		lines = append(lines, fmt.Sprintf(strFormat, h.Name, r.Name, d.Name))
 	}
 
-	return buf.String()
+	return lines
 }
 
 func (b *bot) handleSelectAsDefaultCommand(s *session) error {
+	devices, err := b.getYandexStations(s)
+	if err != nil {
+		return err
+	}
+
+	iotInfo, _ := b.yaClient.getYandexSmartHomeInfo(s)
+
+	strs := b.yandexStationsToString(s, devices, iotInfo.Rooms, iotInfo.Households)
+
+	rows := make([][]tbot.InlineKeyboardButton, 0)
+	for i, s := range strs {
+		rows = append(rows, tbot.NewInlineKeyboardRow(tbot.NewInlineKeyboardButtonData(s, devices[i].Id)))
+	}
+	keyboard := tbot.NewInlineKeyboardMarkup(rows...)
+
+	msg := tbot.NewMessage(s.chatId, "Please, select the station you want to make the default one")
+	msg.ReplyMarkup = keyboard
+
+	//goland:noinspection GoUnhandledErrorResult
+	b.api.Send(msg)
+
 	return nil
+}
+
+func (b *bot) handleSelectAsDefaultCommandCallback(callback *tbot.CallbackQuery) {
+	s, _ := b.sessionProvider.TryGet(callback.Message.Chat.ID)
+
+	devices, err := b.yaClient.getYandexStations(s)
+	if err != nil {
+		log.Println("Could not process callback. Error occurred trying to get yandex stations", err)
+		return
+	}
+
+	for _, d := range devices {
+		if d.Id == callback.Data {
+			ns := NewSessionWithDevice(s, &d)
+			b.sessionProvider.SaveOrUpdate(ns)
+
+			b.send(s.chatId, fmt.Sprintf("Nice! Device `%s` is selected as default.", d.Name))
+			return
+		}
+	}
+
+	b.send(s.chatId, "Selected device is not currently available. Please, try again later.")
 }
