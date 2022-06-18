@@ -4,22 +4,20 @@ import (
 	"encoding/base64"
 	"fmt"
 	tbot "github.com/go-telegram-bot-api/telegram-bot-api"
-	"io"
 	"log"
 	"net/http"
-	"strconv"
-	"strings"
+	"os"
 )
+
+var httpClient = &http.Client{}
 
 type bot struct {
 	token           string
-	yandexClientId  string
 	api             *tbot.BotAPI
 	sessionProvider SessionProvider
-	client          *http.Client
 }
 
-func NewBot(token string, yandexClientId string) *bot {
+func NewBot(token string) *bot {
 	api, err := tbot.NewBotAPI(token)
 	if err != nil {
 		log.Fatalln("Could not create a new bot API instance", err)
@@ -28,8 +26,7 @@ func NewBot(token string, yandexClientId string) *bot {
 	log.Printf("Bot has started. Authorized on account %s", api.Self.UserName)
 
 	sp := NewInMemorySessionProvider()
-
-	return &bot{token, yandexClientId, api, sp, &http.Client{}}
+	return &bot{token, api, sp}
 }
 
 func (b *bot) Run() {
@@ -83,18 +80,13 @@ func (b *bot) handleStartCommand(chatId int64, args string) {
 			goto hello
 		}
 
-		tokenInfo := strings.Split(string(decoded), ":")
-		accessToken := tokenInfo[0]
-		expiresIn, _ := strconv.Atoi(tokenInfo[1])
-
-		oauthToken := NewToken(accessToken, &expiresIn)
-		csrfToken, err := getYandexCSRFToken(accessToken, b.client)
+		yaClient := NewYandexClient(httpClient)
+		err = yaClient.SetupTokens(string(decoded))
 		if err != nil {
 			b.send(chatId, "Could not complete authentication process. Please, try again.")
-			return
 		}
 
-		s := NewSession(chatId, oauthToken, csrfToken)
+		s := NewSession(chatId, yaClient)
 		b.sessionProvider.SaveOrUpdate(s)
 
 		b.send(chatId, "Authentication is complete.\nSend me a link and I will share it with Alice. Have fun!")
@@ -110,27 +102,8 @@ Authentication is done thought Yandex.OAuth. I will never ask you for login or p
 	`
 	b.send(chatId, text)
 
-	link := fmt.Sprintf("https://oauth.yandex.com/authorize?response_type=token&client_id=%v", b.yandexClientId)
+	link := fmt.Sprintf("https://oauth.yandex.com/authorize?response_type=token&client_id=%v", os.Getenv(YandexClientId))
 	b.send(chatId, link)
 
 	return
-}
-
-func getYandexCSRFToken(oauthToken string, client *http.Client) (*token, error) {
-	req, err := http.NewRequest(http.MethodGet, "https://frontend.vh.yandex.ru/csrf_token", nil)
-	req.Header.Add("Authorization", fmt.Sprintf("OAuth %s", oauthToken))
-
-	resp, err := client.Do(req)
-	if err != nil {
-		log.Println("Could not get yandex csrf token", err)
-		return nil, err
-	}
-
-	tokenBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		log.Println(err)
-		return nil, err
-	}
-
-	return NewToken(string(tokenBytes), nil), nil
 }

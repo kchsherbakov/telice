@@ -53,6 +53,6 @@ func setupServer() {
 }
 
 func runBot() {
-	b := NewBot(os.Getenv("TELEGRAM_BOT_TOKEN"), os.Getenv("YANDEX_CLIENT_ID"))
+	b := NewBot(os.Getenv(TelegramBotToken))
 	b.Run()
 }
