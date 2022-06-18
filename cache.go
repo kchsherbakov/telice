@@ -8,6 +8,7 @@ import (
 type CacheProvider interface {
 	Save(key string, value interface{})
 	TryGet(key string) (interface{}, bool)
+	Delete(key string)
 }
 
 type inMemoryCacheProvider struct {
@@ -24,4 +25,8 @@ func (p *inMemoryCacheProvider) Save(key string, value interface{}) {
 
 func (p *inMemoryCacheProvider) TryGet(key string) (interface{}, bool) {
 	return p.cache.Get(key)
+}
+
+func (p *inMemoryCacheProvider) Delete(key string) {
+	p.cache.Delete(key)
 }

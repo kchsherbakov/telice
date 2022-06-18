@@ -3,6 +3,7 @@ package main
 type SessionProvider interface {
 	SaveOrUpdate(newSession *session)
 	TryGet(chatId int64) (*session, bool)
+	Delete(chatId int64)
 }
 
 type sessions map[int64]*session
@@ -43,4 +44,8 @@ func (ss sessions) SaveOrUpdate(newSession *session) {
 func (ss sessions) TryGet(chatId int64) (*session, bool) {
 	s, ok := ss[chatId]
 	return s, ok
+}
+
+func (ss sessions) Delete(chatId int64) {
+	delete(ss, chatId)
 }

@@ -9,6 +9,7 @@ const (
 	StartCmd           = "start"
 	ListDevicesCmd     = "listdevices"
 	SelectAsDefaultCmd = "selectasdefault"
+	ResetCmd           = "reset"
 
 	YandexStationTypeSubstr = "yandex.station"
 )

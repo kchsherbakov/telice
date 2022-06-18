@@ -62,7 +62,11 @@ func (b *bot) handleError(chatId int64, err error) {
 		return
 	}
 
-	b.send(chatId, "Something went wrong. Please, try again.")
+	text := fmt.Sprintf(`
+Something went wrong. Please, try again.
+If the issue persists, try /%s-ting
+`, ResetCmd)
+	b.send(chatId, text)
 }
 
 func (b *bot) send(chatId int64, text string) {
@@ -97,6 +101,8 @@ func (b *bot) handleCommand(msg *tbot.Message) error {
 		return b.handleListDevicesCommand(s)
 	case SelectAsDefaultCmd:
 		return b.handleSelectAsDefaultCommand(s)
+	case ResetCmd:
+		return b.handleResetCommand(s)
 	}
 
 	return nil
@@ -229,7 +235,7 @@ func (b *bot) handleSelectAsDefaultCommand(s *session) error {
 	}
 	keyboard := tbot.NewInlineKeyboardMarkup(rows...)
 
-	msg := tbot.NewMessage(s.chatId, "Please, select the station you want to make the default one")
+	msg := tbot.NewMessage(s.chatId, "Please, select the station you want to make the default one.")
 	msg.ReplyMarkup = keyboard
 
 	//goland:noinspection GoUnhandledErrorResult
@@ -258,4 +264,15 @@ func (b *bot) handleSelectAsDefaultCommandCallback(callback *tbot.CallbackQuery)
 	}
 
 	b.send(s.chatId, "Selected device is not currently available. Please, try again later.")
+}
+
+func (b *bot) handleResetCommand(s *session) error {
+	b.sessionProvider.Delete(s.chatId)
+
+	ck1 := fmt.Sprintf("%d_%s", s.chatId, "iotuserinfo")
+	b.cacheProvider.Delete(ck1)
+
+	b.send(s.chatId, "Session reset successfully.")
+
+	return nil
 }
