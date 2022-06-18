@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -52,7 +51,7 @@ type YandexClient struct {
 
 func NewYandexClient(clientId string, cacheProvider CacheProvider, httpClient *http.Client) *YandexClient {
 	if httpClient == nil {
-		log.Fatalln("Http client must not be null")
+		log.Fatal("Http client must not be null")
 	}
 
 	return &YandexClient{clientId, cacheProvider, httpClient}
@@ -83,13 +82,13 @@ func (y *YandexClient) getYandexCSRFToken(oauthToken string) (*token, error) {
 
 	resp, err := y.httpClient.Do(req)
 	if err != nil {
-		log.Println("Could not get yandex csrf token", err)
+		log.WithError(err).Error("Could not get yandex csrf token")
 		return nil, err
 	}
 
 	tokenBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
-		log.Println(err)
+		log.Error(err)
 		return nil, err
 	}
 
@@ -105,26 +104,26 @@ func (y *YandexClient) getYandexSmartHomeInfo(s *session) (*iotInfo, error) {
 
 	req, err := http.NewRequest(http.MethodGet, "https://api.iot.yandex.net/v1.0/user/info", nil)
 	if err != nil {
-		log.Print("Could not create new request", err)
+		log.WithError(err).Error("Could not create new request")
 		return nil, err
 	}
 	req.Header.Add("Authorization", fmt.Sprintf("OAuth %s", s.oauthToken.value))
 
 	resp, err := y.httpClient.Do(req)
 	if err != nil {
-		log.Println("Error occurred while requesting devices info", err)
+		log.WithError(err).Error("Error occurred while requesting devices info")
 		return nil, err
 	}
 
 	var dataResp = &iotInfo{}
 	err = json.NewDecoder(resp.Body).Decode(dataResp)
 	if err != nil {
-		log.Println("Error occurred while decoding response body", err)
+		log.WithError(err).Error("Error occurred while decoding response body")
 		return nil, err
 	}
 
 	if dataResp.Status != "ok" {
-		log.Println(fmt.Sprintf("Request has completed with error status. Message: %s", dataResp.Message))
+		log.Errorf("Request has completed with error status. Message: %s", dataResp.Message)
 		return nil, errors.New("request has completed with error status")
 	}
 

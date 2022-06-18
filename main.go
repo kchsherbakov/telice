@@ -3,17 +3,28 @@ package main
 import (
 	"fmt"
 	"github.com/etherlabsio/healthcheck"
-	"log"
+	"github.com/sirupsen/logrus"
 	"net/http"
 	"os"
 	"time"
 )
 
+var log *logrus.Logger
+
 func main() {
+	initConfig()
 	checkEnv()
 
 	go setupServer()
 	runBot()
+}
+
+func initConfig() {
+	log = logrus.New()
+	log.SetFormatter(&logrus.TextFormatter{
+		FullTimestamp: true,
+	})
+	log.SetReportCaller(true)
 }
 
 func checkEnv() {

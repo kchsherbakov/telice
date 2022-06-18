@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"fmt"
 	tbot "github.com/go-telegram-bot-api/telegram-bot-api"
-	"log"
 	"net/http"
 	"sort"
 )
@@ -21,10 +20,10 @@ type bot struct {
 func NewBot(token string, yandexClientId string) *bot {
 	api, err := tbot.NewBotAPI(token)
 	if err != nil {
-		log.Fatalln("Could not create a new bot API instance", err)
+		log.WithError(err).Fatal("Could not create a new bot API instance")
 	}
 
-	log.Printf("Bot has started. Authorized on account %s", api.Self.UserName)
+	log.Infof("Bot has started. Authorized on account %s", api.Self.UserName)
 
 	sp := NewInMemorySessionProvider()
 	cp := NewInMemoryCacheProvider()
@@ -70,7 +69,7 @@ func (b *bot) send(chatId int64, text string) {
 	msg := tbot.NewMessage(chatId, text)
 	_, err := b.api.Send(msg)
 	if err != nil {
-		log.Println(fmt.Sprintf("Error occurred while trying to send the message to chat %v", chatId), err)
+		log.WithError(err).Errorf("Error occurred while trying to send the message to chat %v", chatId)
 	}
 }
 
@@ -113,7 +112,7 @@ func (b *bot) handleStartCommand(chatId int64, args string) error {
 	if args != "" {
 		decoded, err := base64.StdEncoding.DecodeString(args)
 		if err != nil {
-			log.Println(fmt.Sprintf("Error occurred decoding base64 string `%v`", decoded), err)
+			log.WithError(err).Errorf("Error occurred decoding base64 string `%v`", decoded)
 			goto hello
 		}
 
@@ -244,7 +243,7 @@ func (b *bot) handleSelectAsDefaultCommandCallback(callback *tbot.CallbackQuery)
 
 	devices, err := b.yaClient.getYandexStations(s)
 	if err != nil {
-		log.Println("Could not process callback. Error occurred trying to get yandex stations", err)
+		log.WithError(err).Error("Could not process callback. Error occurred trying to get yandex stations")
 		return
 	}
 
