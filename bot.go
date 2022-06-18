@@ -7,18 +7,17 @@ import (
 	tbot "github.com/go-telegram-bot-api/telegram-bot-api"
 	"log"
 	"net/http"
-	"os"
 )
-
-var httpClient = &http.Client{}
 
 type bot struct {
 	token           string
 	api             *tbot.BotAPI
+	yaClient        *YandexClient
 	sessionProvider SessionProvider
+	cacheProvider   CacheProvider
 }
 
-func NewBot(token string) *bot {
+func NewBot(token string, yandexClientId string) *bot {
 	api, err := tbot.NewBotAPI(token)
 	if err != nil {
 		log.Fatalln("Could not create a new bot API instance", err)
@@ -27,7 +26,10 @@ func NewBot(token string) *bot {
 	log.Printf("Bot has started. Authorized on account %s", api.Self.UserName)
 
 	sp := NewInMemorySessionProvider()
-	return &bot{token, api, sp}
+	cp := NewInMemoryCacheProvider()
+	yc := NewYandexClient(yandexClientId, cp, &http.Client{})
+
+	return &bot{token, api, yc, sp, cp}
 }
 
 func (b *bot) Run() {
@@ -83,13 +85,12 @@ func (b *bot) handleStartCommand(chatId int64, args string) {
 			goto hello
 		}
 
-		yaClient := NewYandexClient(httpClient)
-		err = yaClient.SetupTokens(string(decoded))
+		oauthToken, csrfToken, err := b.yaClient.getTokens(string(decoded))
 		if err != nil {
 			b.send(chatId, "Could not complete authentication process. Please, try again.")
 		}
 
-		s := NewSession(chatId, yaClient)
+		s := NewSession(chatId, oauthToken, csrfToken)
 		b.sessionProvider.SaveOrUpdate(s)
 
 		b.send(chatId, "Authentication is complete.\nSend me a link and I will share it with Alice. Have fun!")
@@ -104,9 +105,7 @@ To use telice first we need to authenticate you. Please, click on the link down 
 Authentication is done thought Yandex.OAuth. I will never ask you for login or password.
 	`
 	b.send(chatId, text)
-
-	link := fmt.Sprintf("https://oauth.yandex.com/authorize?response_type=token&client_id=%v", os.Getenv(YandexClientId))
-	b.send(chatId, link)
+	b.send(chatId, b.yaClient.getOAuthUrl())
 
 	return
 }
@@ -119,7 +118,7 @@ func (b *bot) handleListDevicesCommand(chatId int64) {
 		return
 	}
 
-	devices, err := s.client.getYandexStations()
+	devices, err := b.yaClient.getYandexStations(s)
 	if err != nil {
 		b.send(s.chatId, "Could not get list of registered devices. Please, try again")
 		return
@@ -130,11 +129,33 @@ func (b *bot) handleListDevicesCommand(chatId int64) {
 		return
 	}
 
+	iotInfo, _ := b.yaClient.getYandexSmartHomeInfo(s)
+
+	msgText := b.formatYandexStationsMessage(devices, iotInfo.Rooms, iotInfo.Households)
+	b.send(s.chatId, msgText)
+}
+
+func (b *bot) formatYandexStationsMessage(devices []device, rooms []room, households []household) string {
 	var buf = bytes.Buffer{}
 	for i, d := range devices {
-		buf.WriteString(fmt.Sprintf("%d. %s", i+1, d.Name))
-		buf.WriteString("\n")
+		var r room
+		for _, v := range rooms {
+			if v.Id == d.Room {
+				r = v
+				break
+			}
+		}
+
+		var h household
+		for _, v := range households {
+			if v.Id == r.HouseholdId {
+				h = v
+				break
+			}
+		}
+
+		buf.WriteString(fmt.Sprintf("%d. %s - %s - %s\n", i+1, h.Name, r.Name, d.Name))
 	}
 
-	b.send(s.chatId, buf.String())
+	return buf.String()
 }

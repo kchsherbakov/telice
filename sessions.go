@@ -8,8 +8,9 @@ type SessionProvider interface {
 type sessions map[int64]*session
 
 type session struct {
-	chatId int64
-	client *YandexClient
+	chatId     int64
+	oauthToken *token
+	csrfToken  *token
 }
 
 type token struct {
@@ -21,8 +22,8 @@ func NewToken(value string, expiresIn *int) *token {
 	return &token{value, expiresIn}
 }
 
-func NewSession(chatId int64, client *YandexClient) *session {
-	return &session{chatId, client}
+func NewSession(chatId int64, oauthToken *token, csrfToken *token) *session {
+	return &session{chatId, oauthToken, csrfToken}
 }
 
 func NewInMemorySessionProvider() sessions {
