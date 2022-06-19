@@ -75,13 +75,6 @@ func (b *bot) handleCallbackQuery(s *session, callback *tbot.CallbackQuery) {
 	}
 }
 
-func (b *bot) tryHandleCommandMessage(s *session, update tbot.Update) (bool, error) {
-	if !update.Message.IsCommand() {
-		return false, nil
-	}
-
-	return true, b.handleCommand(s, update.Message)
-}
 func (b *bot) handleMessage(s *session, msg *tbot.Message) error {
 	r, _ := regexp.Compile(URLRegexPattern)
 	match := r.Find([]byte(msg.Text))
@@ -144,37 +137,12 @@ func (b *bot) handleMessage(s *session, msg *tbot.Message) error {
 	return nil
 }
 
-func (b *bot) handleError(chatId int64, err error) {
-	if err == nil {
-		return
+func (b *bot) tryHandleCommandMessage(s *session, update tbot.Update) (bool, error) {
+	if !update.Message.IsCommand() {
+		return false, nil
 	}
 
-	if e, ok := err.(*botError); ok {
-		b.send(chatId, e.Error())
-		return
-	}
-
-	text := fmt.Sprintf(`
-Something went wrong. Please, try again.
-If the issue persists, try /%s-ting
-`, ResetCmd)
-	b.send(chatId, text)
-}
-
-func (b *bot) send(chatId int64, text string) {
-	msg := tbot.NewMessage(chatId, text)
-	_, err := b.api.Send(msg)
-	if err != nil {
-		log.WithError(err).Errorf("Error occurred while trying to send the message to chat %v", chatId)
-	}
-}
-
-func (b *bot) isAuthorizationRequired(upd *tbot.Update) bool {
-	if upd.Message != nil && upd.Message.Command() == StartCmd {
-		return false
-	}
-
-	return true
+	return true, b.handleCommand(s, update.Message)
 }
 
 func (b *bot) handleCommand(s *session, msg *tbot.Message) error {
@@ -332,6 +300,17 @@ func (b *bot) handleSelectAsDefaultCommand(s *session) error {
 	return nil
 }
 
+func (b *bot) handleResetCommand(s *session) error {
+	b.sessionProvider.Delete(s.chatId)
+
+	ck1 := fmt.Sprintf("%d_%s", s.chatId, "iotuserinfo")
+	b.cacheProvider.Delete(ck1)
+
+	b.send(s.chatId, "Session reset successfully.")
+
+	return nil
+}
+
 func (b *bot) handleSelectAsDefaultCommandCallback(s *session, deviceId string) {
 	devices, err := b.yaClient.getYandexStations(s)
 	if err != nil {
@@ -350,17 +329,6 @@ func (b *bot) handleSelectAsDefaultCommandCallback(s *session, deviceId string) 
 	}
 
 	b.send(s.chatId, "Selected device is not currently available. Please, try again later.")
-}
-
-func (b *bot) handleResetCommand(s *session) error {
-	b.sessionProvider.Delete(s.chatId)
-
-	ck1 := fmt.Sprintf("%d_%s", s.chatId, "iotuserinfo")
-	b.cacheProvider.Delete(ck1)
-
-	b.send(s.chatId, "Session reset successfully.")
-
-	return nil
 }
 
 func (b *bot) handleOneTimePlayMediaCallback(s *session, replyToMessage *tbot.Message, deviceId string) {
@@ -382,4 +350,37 @@ func (b *bot) handleOneTimePlayMediaCallback(s *session, replyToMessage *tbot.Me
 			b.yaClient.playMedia(s, &d, url)
 		}
 	}
+}
+
+func (b *bot) isAuthorizationRequired(upd *tbot.Update) bool {
+	if upd.Message != nil && upd.Message.Command() == StartCmd {
+		return false
+	}
+
+	return true
+}
+
+func (b *bot) send(chatId int64, text string) {
+	msg := tbot.NewMessage(chatId, text)
+	_, err := b.api.Send(msg)
+	if err != nil {
+		log.WithError(err).Errorf("Error occurred while trying to send the message to chat %v", chatId)
+	}
+}
+
+func (b *bot) handleError(chatId int64, err error) {
+	if err == nil {
+		return
+	}
+
+	if e, ok := err.(*botError); ok {
+		b.send(chatId, e.Error())
+		return
+	}
+
+	text := fmt.Sprintf(`
+Something went wrong. Please, try again.
+If the issue persists, try /%s-ting
+`, ResetCmd)
+	b.send(chatId, text)
 }
