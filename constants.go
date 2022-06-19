@@ -11,5 +11,10 @@ const (
 	SelectAsDefaultCmd = "selectasdefault"
 	ResetCmd           = "reset"
 
+	SelectAsDefaultCallback  = "sad"
+	OneTimePlayMediaCallback = "otp"
+
 	YandexStationTypeSubstr = "yandex.station"
+
+	URLRegexPattern = "(?:(?:https?):\\/\\/|\\b(?:[a-z\\d]+\\.))(?:(?:[^\\s()<>]+|\\((?:[^\\s()<>]+|(?:\\([^\\s()<>]+\\)))?\\))+(?:\\((?:[^\\s()<>]+|(?:\\(?:[^\\s()<>]+\\)))?\\)|[^\\s`!()\\[\\]{};:'\".,<>?«»“”‘’]))?"
 )

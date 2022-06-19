@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/avast/retry-go"
 	"io"
 	"net/http"
 	"strconv"
@@ -41,6 +43,16 @@ type device struct {
 type quasarInfo struct {
 	Id       string `json:"device_id"`
 	Platform string `json:"platform"`
+}
+
+type mediaRequest struct {
+	Device  string              `json:"device"`
+	Message mediaRequestMessage `json:"msg"`
+}
+
+type mediaRequestMessage struct {
+	PlayerId       string `json:"player_id"`
+	ProviderItemId string `json:"provider_item_id"`
 }
 
 type YandexClient struct {
@@ -135,7 +147,7 @@ func (y *YandexClient) getYandexSmartHomeInfo(s *session) (*iotInfo, error) {
 func (y *YandexClient) getYandexStations(s *session) ([]device, error) {
 	iotInfo, err := y.getYandexSmartHomeInfo(s)
 	if err != nil {
-		return nil, err
+		return nil, NewBotError("Could not get list of available yandex stations. Please, try again later.")
 	}
 
 	stations := make([]device, 0)
@@ -152,4 +164,76 @@ func (y *YandexClient) getYandexStations(s *session) ([]device, error) {
 
 func (y *YandexClient) getOAuthUrl() string {
 	return fmt.Sprintf("https://oauth.yandex.com/authorize?response_type=token&client_id=%v", y.clientId)
+}
+
+func (y *YandexClient) playMedia(s *session, d *device, url string) error {
+	var dId string
+	if s.defaultDevice != nil {
+		dId = s.defaultDevice.QuasarInfo.Id
+	}
+	if d != nil {
+		dId = d.QuasarInfo.Id
+	}
+
+	if dId == "" {
+		return errors.New("cannot play media. No device is selected")
+	}
+
+	// TODO: refactor to be dynamic
+	mReq := &mediaRequest{
+		Device: dId,
+		Message: mediaRequestMessage{
+			PlayerId:       "youtube",
+			ProviderItemId: url,
+		},
+	}
+
+	jsonData, _ := json.Marshal(mReq)
+	req, err := http.NewRequest(http.MethodPost, "https://yandex.ru/video/station", bytes.NewBuffer(jsonData))
+	if err != nil {
+		return err
+	}
+
+	req.Header.Add("Authorization", fmt.Sprintf("OAuth %s", s.oauthToken.value))
+	req.Header.Add("x-csrf-token", s.csrfToken.value)
+
+	err = retry.Do(
+		func() error {
+			resp, err := y.httpClient.Do(req)
+			if err != nil {
+				return err
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode != http.StatusOK {
+				return errors.New(fmt.Sprintf("unexpected status code %d", resp.StatusCode))
+			}
+
+			b := make(map[string]interface{})
+			err = json.NewDecoder(resp.Body).Decode(&b)
+			if err != nil {
+				log.WithError(err).Error("Could not decode body")
+				return err
+			}
+
+			if b["status"].(string) == "error" {
+				return NewBotError("Could not share the medial link with Alice. Please, try again later.")
+			}
+
+			return nil
+		},
+		retry.Attempts(5),
+		retry.RetryIf(func(err error) bool {
+			if _, ok := err.(*botError); ok {
+				return false
+			}
+
+			return true
+		}),
+		retry.OnRetry(func(n uint, err error) {
+			log.WithError(err).Errorf("Could not share media. Attemp: #%d", n)
+		}),
+	)
+
+	return err
 }

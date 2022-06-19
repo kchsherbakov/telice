@@ -6,7 +6,9 @@ import (
 	"fmt"
 	tbot "github.com/go-telegram-bot-api/telegram-bot-api"
 	"net/http"
+	"regexp"
 	"sort"
+	"strings"
 )
 
 type bot struct {
@@ -38,18 +40,108 @@ func (b *bot) Run() {
 
 	updates := b.api.GetUpdatesChan(u)
 	for update := range updates {
+		s, found := b.sessionProvider.TryGet(update.FromChat().ID)
+		if !found && b.isAuthorizationRequired(&update) {
+			b.handleError(update.FromChat().ID, NewBotError(fmt.Sprintf("Authentication required. Please, click /%s to initiate.", StartCmd)))
+			return
+		}
+
 		if update.Message != nil {
-			if update.Message.IsCommand() {
-				err := b.handleCommand(update.Message)
-				if err != nil {
-					b.handleError(update.FromChat().ID, err)
-					continue
-				}
+			handled, err := b.tryHandleCommandMessage(s, update)
+			if !handled {
+				err = b.handleMessage(s, update.Message)
 			}
+
+			b.handleError(update.FromChat().ID, err)
 		} else if update.CallbackQuery != nil {
-			b.handleSelectAsDefaultCommandCallback(update.CallbackQuery)
+			b.handleCallbackQuery(s, update.CallbackQuery)
 		}
 	}
+}
+
+func (b *bot) handleCallbackQuery(s *session, callback *tbot.CallbackQuery) {
+	if callback.Data == "" {
+		return
+	}
+
+	parts := strings.Split(callback.Data, ":")
+	method, data := parts[0], parts[1]
+
+	switch method {
+	case SelectAsDefaultCallback:
+		b.handleSelectAsDefaultCommandCallback(s, data)
+	case OneTimePlayMediaCallback:
+		b.handleOneTimePlayMediaCallback(s, callback.Message.ReplyToMessage, data)
+	}
+}
+
+func (b *bot) tryHandleCommandMessage(s *session, update tbot.Update) (bool, error) {
+	if !update.Message.IsCommand() {
+		return false, nil
+	}
+
+	return true, b.handleCommand(s, update.Message)
+}
+func (b *bot) handleMessage(s *session, msg *tbot.Message) error {
+	r, _ := regexp.Compile(URLRegexPattern)
+	match := r.Find([]byte(msg.Text))
+	if match == nil {
+		return NewBotError("URL link is not found in the message. Please, send me a valid one.")
+	}
+	url := string(match)
+
+	// region YouTube
+
+	loweredUrl := strings.ToLower(url)
+	if !strings.Contains(loweredUrl, "youtube") && !strings.Contains(loweredUrl, "youtu.be") {
+		return NewBotError("Sorry, but I support only YouTube at the moment :(")
+	}
+	url = reformatYouTubeUrl(url)
+
+	// endregion
+
+	devices, err := b.yaClient.getYandexStations(s)
+	if err != nil {
+		return err
+	}
+	if len(devices) == 0 {
+		return NewBotError("I didn't find any yandex stations. Are they configured properly?")
+	}
+
+	if s.defaultDevice != nil {
+		for _, d := range devices {
+			if d.Id == s.defaultDevice.Id {
+				return b.yaClient.playMedia(s, nil, url)
+			}
+		}
+
+		return NewBotError("Selected device is not currently available. Please, try again later.")
+	}
+
+	if len(devices) == 1 {
+		return b.yaClient.playMedia(s, &devices[0], url)
+	}
+
+	iotInfo, _ := b.yaClient.getYandexSmartHomeInfo(s)
+
+	strs := b.yandexStationsToString(s, devices, iotInfo.Rooms, iotInfo.Households)
+
+	rows := make([][]tbot.InlineKeyboardButton, 0)
+	for i, s := range strs {
+		// Notice, Telegram api requires button data to be 64 bytes or less
+		data := fmt.Sprintf("%s:%s", OneTimePlayMediaCallback, devices[i].Id)
+		rows = append(rows, tbot.NewInlineKeyboardRow(tbot.NewInlineKeyboardButtonData(s, data)))
+	}
+	keyboard := tbot.NewInlineKeyboardMarkup(rows...)
+
+	replyMsg := tbot.NewMessage(s.chatId, "Please, select the station you want to make the default one.")
+	replyMsg.ReplyToMessageID = msg.MessageID
+	replyMsg.ReplyMarkup = keyboard
+
+	//goland:noinspection GoUnhandledErrorResult
+	b.api.Send(replyMsg)
+
+	return nil
 }
 
 func (b *bot) handleError(chatId int64, err error) {
@@ -77,22 +169,17 @@ func (b *bot) send(chatId int64, text string) {
 	}
 }
 
-func (b *bot) isAuthorizationRequired(cmd string) bool {
-	if cmd == StartCmd {
+func (b *bot) isAuthorizationRequired(upd *tbot.Update) bool {
+	if upd.Message != nil && upd.Message.Command() == StartCmd {
 		return false
 	}
 
 	return true
 }
 
-func (b *bot) handleCommand(msg *tbot.Message) error {
+func (b *bot) handleCommand(s *session, msg *tbot.Message) error {
 	cmd := msg.Command()
 	args := msg.CommandArguments()
-
-	s, found := b.sessionProvider.TryGet(msg.Chat.ID)
-	if !found && b.isAuthorizationRequired(cmd) {
-		return NewBotError(fmt.Sprintf("Authentication required. Please, click /%s to initiate.", StartCmd))
-	}
 
 	switch cmd {
 	case StartCmd:
@@ -231,7 +318,8 @@ func (b *bot) handleSelectAsDefaultCommand(s *session) error {
 
 	rows := make([][]tbot.InlineKeyboardButton, 0)
 	for i, s := range strs {
-		rows = append(rows, tbot.NewInlineKeyboardRow(tbot.NewInlineKeyboardButtonData(s, devices[i].Id)))
+		data := fmt.Sprintf("%s:%s", SelectAsDefaultCallback, devices[i].Id)
+		rows = append(rows, tbot.NewInlineKeyboardRow(tbot.NewInlineKeyboardButtonData(s, data)))
 	}
 	keyboard := tbot.NewInlineKeyboardMarkup(rows...)
 
@@ -244,9 +332,7 @@ func (b *bot) handleSelectAsDefaultCommand(s *session) error {
 	return nil
 }
 
-func (b *bot) handleSelectAsDefaultCommandCallback(callback *tbot.CallbackQuery) {
-	s, _ := b.sessionProvider.TryGet(callback.Message.Chat.ID)
-
+func (b *bot) handleSelectAsDefaultCommandCallback(s *session, deviceId string) {
 	devices, err := b.yaClient.getYandexStations(s)
 	if err != nil {
 		log.WithError(err).Error("Could not process callback. Error occurred trying to get yandex stations")
@@ -254,7 +340,7 @@ func (b *bot) handleSelectAsDefaultCommandCallback(callback *tbot.CallbackQuery)
 	}
 
 	for _, d := range devices {
-		if d.Id == callback.Data {
+		if d.Id == deviceId {
 			ns := NewSessionWithDevice(s, &d)
 			b.sessionProvider.SaveOrUpdate(ns)
 
@@ -275,4 +361,25 @@ func (b *bot) handleResetCommand(s *session) error {
 	b.send(s.chatId, "Session reset successfully.")
 
 	return nil
+}
+
+func (b *bot) handleOneTimePlayMediaCallback(s *session, replyToMessage *tbot.Message, deviceId string) {
+	r, _ := regexp.Compile(URLRegexPattern)
+	url := string(r.Find([]byte(replyToMessage.Text)))
+	// It is guaranteed that at this point
+	// we might have only youtube link
+	url = reformatYouTubeUrl(url)
+
+	log.Infof(url)
+
+	devices, err := b.yaClient.getYandexStations(s)
+	if err != nil {
+		return
+	}
+
+	for _, d := range devices {
+		if d.Id == deviceId {
+			b.yaClient.playMedia(s, &d, url)
+		}
+	}
 }
