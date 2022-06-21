@@ -70,6 +70,12 @@ You can always clone this repo and build your own telice. It's Open Source, righ
 3. Setup ENV variables. Please refer to the [.env.example](.env.example)
 4. `go run` it
 
+**OR**
+
+```shell
+docker pull kchsherbakov/telice
+```
+
 ## Contact
 
 Konstantin Chsherbakov - https://kchsherbakov.com  

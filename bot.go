@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"fmt"
-	tbot "github.com/go-telegram-bot-api/telegram-bot-api"
+	tbot "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"net/http"
 	"regexp"
 	"sort"
@@ -43,7 +43,7 @@ func (b *bot) Run() {
 		s, found := b.sessionProvider.TryGet(update.FromChat().ID)
 		if !found && b.isAuthorizationRequired(&update) {
 			b.handleError(update.FromChat().ID, NewBotError(fmt.Sprintf("Authentication required. Please, click /%s to initiate.", StartCmd)))
-			return
+			continue
 		}
 
 		if update.Message != nil {
@@ -57,6 +57,7 @@ func (b *bot) Run() {
 			b.handleCallbackQuery(s, update.CallbackQuery)
 		}
 	}
+	log.Infof("FINISHED")
 }
 
 func (b *bot) handleCallbackQuery(s *session, callback *tbot.CallbackQuery) {
