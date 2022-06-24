@@ -176,7 +176,7 @@ func (y *YandexClient) playMedia(s *session, d *device, url string) error {
 	}
 
 	if dId == "" {
-		return errors.New("cannot play media. No device is selected")
+		return NewBotError("Cannot play media. No device has been selected.")
 	}
 
 	// TODO: refactor to be dynamic
@@ -231,7 +231,7 @@ func (y *YandexClient) playMedia(s *session, d *device, url string) error {
 			return true
 		}),
 		retry.OnRetry(func(n uint, err error) {
-			log.WithError(err).Errorf("Could not share media. Attemp: #%d", n)
+			log.WithError(err).Errorf("could not share media. Attemp: #%d", n)
 		}),
 	)
 

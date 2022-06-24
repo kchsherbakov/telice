@@ -128,7 +128,7 @@ func (b *bot) handleMessage(s *session, msg *tbot.Message) error {
 	}
 	keyboard := tbot.NewInlineKeyboardMarkup(rows...)
 
-	replyMsg := tbot.NewMessage(s.chatId, "Please, select the station you want to make the default one.")
+	replyMsg := tbot.NewMessage(s.chatId, "Please, select the station you want to share media with.")
 	replyMsg.ReplyToMessageID = msg.MessageID
 	replyMsg.ReplyMarkup = keyboard
 
@@ -195,7 +195,7 @@ hello:
 	text := `
 Hello!
 To use telice first we need to authenticate you. Please, click on the link down below to authenticate. 
-Authentication is done thought Yandex.OAuth. I will never ask you for login or password.
+Authentication is done using Yandex.OAuth. I will never ask you for login or password.
 	`
 	b.send(chatId, text)
 	b.send(chatId, b.yaClient.getOAuthUrl())
@@ -307,7 +307,7 @@ func (b *bot) handleResetCommand(s *session) error {
 	ck1 := fmt.Sprintf("%d_%s", s.chatId, "iotuserinfo")
 	b.cacheProvider.Delete(ck1)
 
-	b.send(s.chatId, "Session reset successfully.")
+	b.send(s.chatId, "Session has been reset successfully.")
 
 	return nil
 }

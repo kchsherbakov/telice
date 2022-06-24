@@ -78,5 +78,5 @@ docker pull kchsherbakov/telice
 
 ## Contact
 
-Konstantin Chsherbakov - https://kchsherbakov.com  
-Project website - https://kchsherbakov.com/telice
+Project website - https://kchsherbakov.com/telice  
+Konstantin Chsherbakov - https://kchsherbakov.com
