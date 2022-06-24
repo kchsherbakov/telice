@@ -84,6 +84,19 @@ func (y *YandexClient) getTokens(rawToken string) (*token, *token, error) {
 	return oauthToken, csrfToken, nil
 }
 
+func (y *YandexClient) refreshTokens(s *session) error {
+	// TODO: Implement refresh of YandexOAuth token. It is valid for 1 year
+
+	csrfToken, err := y.getYandexCSRFToken(s.oauthToken.value)
+	if err != nil {
+		return err
+	}
+
+	s.csrfToken = csrfToken
+
+	return nil
+}
+
 func (y *YandexClient) getYandexCSRFToken(oauthToken string) (*token, error) {
 	if oauthToken == "" {
 		return nil, errors.New("yandex OAuth token is required to perform this action")

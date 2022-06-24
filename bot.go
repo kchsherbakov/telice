@@ -102,6 +102,11 @@ func (b *bot) handleMessage(s *session, msg *tbot.Message) error {
 		return NewBotError("I didn't find any yandex stations. Are they configured properly?")
 	}
 
+	err = b.yaClient.refreshTokens(s)
+	if err != nil {
+		return err
+	}
+
 	if s.defaultDevice != nil {
 		for _, d := range devices {
 			if d.Id == s.defaultDevice.Id {
